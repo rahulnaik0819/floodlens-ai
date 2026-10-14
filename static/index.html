@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FloodLens AI — Disaster Command Dashboard</title>
+
+  <!-- Visual Core dependencies -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #020617;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.3);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 2px;
+    }
+
+    /* Glassmorphism card styles */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.4);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Pulse for target markers */
+    @keyframes pulse-ring {
+      0% {
+        transform: scale(0.33);
+        opacity: 1;
+      }
+
+      80%,
+      100% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+    }
+
+    .marker-pulse {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .marker-pulse::after {
+      content: '';
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+
+    /* Map container override */
+    .leaflet-container {
+      background: #090d16 !important;
+    }
+  </style>
+</head>
+
+<body class="h-screen w-screen overflow-hidden flex flex-col text-slate-100">
+
+  <!-- Top Mission Status Bar -->
+  <header
+    class="h-14 shrink-0 glass-panel border-b border-slate-800/80 px-4 flex items-center justify-between z-[1000] relative bg-slate-950">
+    <div class="flex items-center gap-3">
+      <div
+        class="bg-gradient-to-tr from-cyan-500 to-blue-600 p-2 rounded-lg shadow-lg shadow-blue-500/10 flex items-center justify-center">
+        <i class="fa-solid fa-satellite-dish text-white text-base"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
+          FloodLens <span class="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">AI</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 font-medium tracking-widest uppercase">Emergency Command Dashboard</p>
+      </div>
+    </div>
+
+    <!-- System Status Metrics -->
+    <div class="hidden md:flex items-center gap-6 text-xs font-semibold tracking-wide">
+      <div class="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/25 rounded-full">
+        <span class="h-2 w-2 bg-emerald-400 rounded-full animate-ping"></span>
+        <span class="text-emerald-400 text-[10px] uppercase tracking-wider mono" id="conn-state">CORE ENGINE:
+          ONLINE</span>
+      </div>
+
+      <div class="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 border border-slate-800 rounded-lg">
+        <i class="fa-solid fa-microchip text-slate-400"></i>
+        <span class="text-[11px] text-slate-300 uppercase tracking-wider font-medium">PyTorch:</span>
+        <span class="mono text-cyan-400" id="compute-target">CPU</span>
+      </div>
+
+      <div class="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 border border-slate-800 rounded-lg">
+        <i class="fa-solid fa-circle-exclamation text-amber-500"></i>
+        <span class="text-amber-500 font-medium">1 Active Hazard Zone</span>
+      </div>
+
+      <div class="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 border border-slate-800 rounded-lg">
+        <i class="fa-solid fa-stopwatch text-slate-400"></i>
+        <span class="text-[11px] text-slate-300">LATENCY:</span>
+        <span class="mono text-emerald-400" id="latency-val">-- ms</span>
+      </div>
+    </div>
+
+    <!-- Universal Disaster Clock -->
+    <div class="flex items-center gap-3">
+      <div class="text-right hidden sm:block">
+        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none">OPERATIONS TIME</div>
+        <div class="text-xs font-bold text-slate-300 tracking-wider mono mt-1" id="time-utc">00:00:00 UTC</div>
+      </div>
+      <button onclick="window.location.reload()"
+        class="p-2 hover:bg-slate-800/80 rounded-lg border border-slate-800 transition duration-150 flex items-center justify-center text-slate-400 hover:text-white"
+        title="Refresh Service Map">
+        <i class="fa-solid fa-arrow-rotate-right text-xs"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Map & Workspace -->
+  <main class="flex-1 relative flex overflow-hidden">
+
+    <!-- Left Command Side Panel -->
+    <aside id="sidebar"
+      class="absolute lg:relative top-0 left-0 h-full w-[360px] max-w-full z-[999] glass-panel border-r border-slate-800 flex flex-col transition-transform duration-300 flex-shrink-0 bg-slate-950/90 backdrop-blur-xl"
+      style="z-index: 10; position: relative;">
+
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-cyan-400"></i>
+          <h2 class="text-sm font-bold tracking-wide uppercase text-slate-200">Operations Control</h2>
+        </div>
+        <button onclick="toggleSidebar()" class="lg:hidden p-1.5 hover:bg-slate-800 rounded text-slate-400">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+        <!-- Mission Presets -->
+        <div class="space-y-1.5">
+          <label class="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">Mission Preset</label>
+          <div class="relative">
+            <select id="preset"
+              class="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-semibold text-slate-100 focus:outline-none focus:border-cyan-500 appearance-none transition"
+              onchange="loadPreset(this.value)">
+              <option value="mandi_bridge_out">Mandi Central Bridge Outage</option>
+              <option value="beas_flood">Beas River Flash Flood</option>
+              <option value="custom">Custom Operations Coordinates</option>
+            </select>
+            <i class="fa-solid fa-angle-down absolute right-3 top-3 text-slate-400 pointer-events-none text-xs"></i>
+          </div>
+        </div>
+
+        <!-- Interactive Coordinates -->
+        <div class="space-y-3">
+          <label class="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">Placement
+            Coordinates</label>
+
+          <!-- Place Markers Toggles -->
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btn-place-origin" onclick="togglePlacementMode('origin')"
+              class="py-1.5 px-2 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-emerald-500/5 rounded-lg text-[10px] font-bold text-slate-300 transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-location-crosshairs text-emerald-400"></i> Set Origin
+            </button>
+            <button id="btn-place-dest" onclick="togglePlacementMode('dest')"
+              class="py-1.5 px-2 bg-slate-900 border border-slate-800 hover:border-red-500/50 hover:bg-red-500/5 rounded-lg text-[10px] font-bold text-slate-300 transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-location-crosshairs text-rose-400"></i> Set Shelter
+            </button>
+          </div>
+
+          <!-- Input Grid -->
+          <div class="bg-slate-900/40 border border-slate-800/85 p-3 rounded-lg space-y-3">
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mb-1">Origin
+                  Lat</label>
+                <input type="number" id="origin-lat" step="0.0001" value="31.7180" onchange="updateMarkersFromInput()"
+                  class="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/70 rounded px-2 py-1 text-xs mono text-slate-200 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mb-1">Origin
+                  Lon</label>
+                <input type="number" id="origin-lon" step="0.0001" value="76.9280" onchange="updateMarkersFromInput()"
+                  class="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/70 rounded px-2 py-1 text-xs mono text-slate-200 focus:outline-none">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mb-1">Shelter
+                  Lat</label>
+                <input type="number" id="dest-lat" step="0.0001" value="31.7000" onchange="updateMarkersFromInput()"
+                  class="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/70 rounded px-2 py-1 text-xs mono text-slate-200 focus:outline-none">
+              </div>
+              <div>
+                <label class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mb-1">Shelter
+                  Lon</label>
+                <input type="number" id="dest-lon" step="0.0001" value="76.9450" onchange="updateMarkersFromInput()"
+                  class="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/70 rounded px-2 py-1 text-xs mono text-slate-200 focus:outline-none">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions Menu -->
+        <div class="space-y-1.5">
+          <label class="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">Quick Actions</label>
+          <div class="grid grid-cols-1 gap-1.5">
+            <button onclick="resetToDefaultBounds()"
+              class="w-full text-left py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-between">
+              <span><i class="fa-solid fa-compress text-cyan-400 mr-2"></i> Reset to Safe Bounds</span>
+              <i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>
+            </button>
+            <button onclick="swapEndpoints()"
+              class="w-full text-left py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-between">
+              <span><i class="fa-solid fa-arrows-rotate text-amber-400 mr-2"></i> Swap Origin / Shelter</span>
+              <i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>
+            </button>
+            <button onclick="toggleHazardOverlay()" id="toggle-hazard-btn"
+              class="w-full text-left py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-between">
+              <span><i class="fa-solid fa-eye-slash text-rose-400 mr-2"></i> Hide Inundation Overlay</span>
+              <i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Command Metrics -->
+        <div class="space-y-1.5 p-3 bg-slate-900/30 border border-slate-800/85 rounded-lg hidden" id="route-stats">
+          <label class="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mb-2">Transit
+            Metadata</label>
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="bg-slate-950/80 p-2 rounded border border-slate-800/85">
+              <div class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Total Distance</div>
+              <div class="text-xs font-bold text-cyan-400 mono mt-0.5" id="stats-distance">-- km</div>
+            </div>
+            <div class="bg-slate-950/80 p-2 rounded border border-slate-800/85">
+              <div class="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Route Nodes</div>
+              <div class="text-xs font-bold text-emerald-400 mono mt-0.5" id="stats-nodes">-- nodes</div>
+            </div>
+          </div>
+          <div
+            class="mt-2.5 p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded flex items-center justify-center gap-1.5 text-[10px] font-bold text-emerald-400 tracking-wide uppercase">
+            <i class="fa-solid fa-shield-halved"></i> Optimal Hazard Avoidance Resolved
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Controller Button -->
+      <div class="p-4 border-t border-slate-800 bg-slate-950/80 shrink-0">
+        <button onclick="calculateReroute()"
+          class="w-full bg-gradient-to-tr from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold py-2.5 px-4 rounded-lg transition duration-200 transform active:scale-95 text-xs tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/10 hover:shadow-cyan-400/20"
+          id="submit-btn">
+          <i class="fa-solid fa-shield-heart"></i> Calculate Evacuation Corridor
+        </button>
+        <div class="text-[10px] text-slate-500 text-center mt-2.5 font-semibold leading-normal">
+          Powered by Dijkstra safe-graph algorithm
+        </div>
+      </div>
+    </aside>
+
+    <!-- Dynamic Map view (Full viewport width / height remaining) -->
+    <div id="map" class="flex-1 h-full" style="width: 100%; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1;"></div>
+
+    <!-- Float Trigger Menu -->
+    <button onclick="toggleSidebar()"
+      class="lg:hidden absolute bottom-5 right-5 z-[1001] bg-cyan-500 hover:bg-cyan-600 shadow-xl shadow-cyan-500/20 text-white h-12 w-12 rounded-full flex items-center justify-center transition focus:outline-none">
+      <i class="fa-solid fa-sliders text-lg"></i>
+    </button>
+  </main>
+
+  <script>
+    let map;
+    let mapLoaded = false;
+    let currentBasemap = 'satellite';
+    let hazardLayer = null;
+    let routeLayer = null;
+    let originMarker = null;
+    let destMarker = null;
+    let isPlacementMode = null; // 'origin' or 'dest'
+    let baseMaps = {};
+
+    // Setup coordinate inputs
+    const oLatInput = document.getElementById('origin-lat');
+    const oLonInput = document.getElementById('origin-lon');
+    const dLatInput = document.getElementById('dest-lat');
+    const dLonInput = document.getElementById('dest-lon');
+
+    // Initial Map Bounds & parameters
+    const mapCenter = [31.7088, 76.9320]; // Mandi, Himachal Pradesh
+    const defaultBounds = [
+      [31.6848, 76.8920],
+      [31.7328, 76.9720]
+    ];
+
+    // Valid coordinate envelope matching the OSMnx graph radius (~8 km from Mandi centre).
+    // Prevents users from dropping pins into roadless mountain terrain outside graph coverage.
+    const GRAPH_BOUNDS = { latMin: 31.636, latMax: 31.782, lonMin: 76.860, lonMax: 77.004 };
+
+    /** Clamp a lat/lon pair to stay within drivable graph coverage. */
+    function clampToGraph(lat, lon) {
+      return {
+        lat: Math.max(GRAPH_BOUNDS.latMin, Math.min(GRAPH_BOUNDS.latMax, lat)),
+        lon: Math.max(GRAPH_BOUNDS.lonMin, Math.min(GRAPH_BOUNDS.lonMax, lon))
+      };
+    }
+
+    // Ensure Map initialisation completes & resolves correctly
+    window.addEventListener('DOMContentLoaded', () => {
+      initSystem();
+    });
+
+    function initSystem() {
+      // Update time
+      setInterval(() => {
+        const now = new Date();
+        document.getElementById('time-utc').innerText = now.toISOString().substring(11, 19) + " UTC";
+      }, 1000);
+
+      // Fetch backend state on load
+      fetch('/health')
+        .then(r => r.json())
+        .then(d => {
+          if (d.status === 'healthy') {
+            const target = d.device || (d.active_hazard_zones ? 'CPU' : 'ONLINE');
+            document.getElementById('compute-target').innerText = target;
+            document.getElementById('conn-state').innerText = "CORE ENGINE: ONLINE";
+            document.getElementById('conn-state').parentElement.classList.replace('bg-emerald-500/10', 'bg-emerald-500/15');
+          }
+        })
+        .catch(() => {
+          document.getElementById('conn-state').innerText = "OFFLINE - RETRYING";
+          document.getElementById('conn-state').parentElement.classList.replace('bg-emerald-500/10', 'bg-rose-500/15');
+          document.getElementById('conn-state').parentElement.classList.add('border-rose-500/40');
+        });
+
+      // Delay initialization slightly to prevent map container re-initialization errors
+      setTimeout(() => {
+        initGeospatialView();
+      }, 100);
+    }
+
+    function initGeospatialView() {
+      if (mapLoaded) return;
+
+      // Generate Map Instance
+      map = L.map('map', {
+        center: mapCenter,
+        zoom: 13,
+        zoomControl: false,
+        attributionControl: false
+      });
+
+      // Mapbox alternatives (High res satellite vs. Topo style street mapping)
+      baseMaps.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19
+      });
+
+      baseMaps.street = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19
+      });
+
+      // Apply default Satellite View
+      baseMaps.satellite.addTo(map);
+
+      // Add Topographic Toggle widget
+      L.control.zoom({ position: 'topright' }).addTo(map);
+
+      const mapTypeControl = L.control({ position: 'topright' });
+      mapTypeControl.onAdd = function () {
+        const div = L.DomUtil.create('div', 'leaflet-bar');
+        div.innerHTML = `
+                    <button onclick="toggleMapType('satellite')" class="bg-slate-900 border-b border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white p-2 text-[10px] font-bold block">SAT</button>
+                    <button onclick="toggleMapType('street')" class="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white p-2 text-[10px] font-bold block">TOPO</button>
+                `;
+        return div;
+      };
+      mapTypeControl.addTo(map);
+
+      // Place initial markers
+      updateMapMarkers();
+
+      // Setup placement listener
+      map.on('click', handleMapClick);
+
+      // Add hazard zone polygon
+      drawDefaultHazardZone();
+
+      // Zoom map to fit boundary area
+      map.fitBounds(defaultBounds);
+
+      mapLoaded = true;
+
+      // Force internal resize/rendering refresh — 500 ms gives the CSS layout time to settle
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 500);
+
+      // Auto-load Beas River preset and compute evacuation route on first render
+      loadPreset('beas_flood');
+      document.getElementById('preset').value = 'beas_flood';
+      setTimeout(() => {
+        calculateReroute();
+      }, 600);
+    }
+
+    function toggleMapType(type) {
+      if (type === currentBasemap) return;
+      map.removeLayer(baseMaps[currentBasemap]);
+      baseMaps[type].addTo(map);
+      currentBasemap = type;
+    }
+
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.toggle('-translate-x-full');
+    }
+
+    function drawDefaultHazardZone() {
+      // Simulated Flood zone boundary
+      const floodBoundary = [
+        [31.7100, 76.9200],
+        [31.7150, 76.9250],
+        [31.7180, 76.9380],
+        [31.7120, 76.9420],
+        [31.7060, 76.9280]
+      ];
+
+      hazardLayer = L.polygon(floodBoundary, {
+        color: '#f43f5e',
+        fillColor: '#ef4444',
+        fillOpacity: 0.35,
+        weight: 2,
+        dashArray: '5, 10',
+        className: 'danger-zone'
+      }).addTo(map);
+
+      hazardLayer.bindTooltip("ACTIVE INUNDATION AREA", { permanent: false, sticky: true });
+    }
+
+    function toggleHazardOverlay() {
+      const btn = document.getElementById('toggle-hazard-btn');
+      if (map.hasLayer(hazardLayer)) {
+        map.removeLayer(hazardLayer);
+        btn.innerHTML = '<span><i class="fa-solid fa-eye text-emerald-400 mr-2"></i> Show Inundation Overlay</span><i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>';
+      } else {
+        hazardLayer.addTo(map);
+        btn.innerHTML = '<span><i class="fa-solid fa-eye-slash text-rose-400 mr-2"></i> Hide Inundation Overlay</span><i class="fa-solid fa-chevron-right text-[10px] text-slate-500"></i>';
+      }
+    }
+
+    function updateMapMarkers() {
+      const oLat = parseFloat(oLatInput.value);
+      const oLon = parseFloat(oLonInput.value);
+      const dLat = parseFloat(dLatInput.value);
+      const dLon = parseFloat(dLonInput.value);
+
+      // Destroy and rebuild to ensure animation is preserved
+      if (originMarker) map.removeLayer(originMarker);
+      if (destMarker) map.removeLayer(destMarker);
+
+      // Create custom pins
+      const originIcon = L.divIcon({
+        className: 'custom-pin-origin',
+        html: `<div class="marker-pulse text-emerald-400" style="color: #34d399;"><i class="fa-solid fa-truck-medical text-base text-emerald-300"></i></div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+
+      const destIcon = L.divIcon({
+        className: 'custom-pin-dest',
+        html: `<div class="marker-pulse text-rose-400" style="color: #f43f5e;"><i class="fa-solid fa-house-chimney-medical text-base text-rose-300"></i></div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+
+      originMarker = L.marker([oLat, oLon], { icon: originIcon, draggable: true }).addTo(map);
+      destMarker = L.marker([dLat, dLon], { icon: destIcon, draggable: true }).addTo(map);
+
+      // Bind update triggers to Marker movement — clamp to graph coverage on dragend
+      originMarker.on('dragend', (e) => {
+        const raw = e.target.getLatLng();
+        const c = clampToGraph(raw.lat, raw.lng);
+        if (c.lat !== raw.lat || c.lon !== raw.lng) e.target.setLatLng([c.lat, c.lon]);
+        oLatInput.value = c.lat.toFixed(5);
+        oLonInput.value = c.lon.toFixed(5);
+      });
+
+      destMarker.on('dragend', (e) => {
+        const raw = e.target.getLatLng();
+        const c = clampToGraph(raw.lat, raw.lng);
+        if (c.lat !== raw.lat || c.lon !== raw.lng) e.target.setLatLng([c.lat, c.lon]);
+        dLatInput.value = c.lat.toFixed(5);
+        dLonInput.value = c.lon.toFixed(5);
+      });
+    }
+
+    function updateMarkersFromInput() {
+      updateMapMarkers();
+    }
+
+    function togglePlacementMode(target) {
+      isPlacementMode = target;
+      const btnOrigin = document.getElementById('btn-place-origin');
+      const btnDest = document.getElementById('btn-place-dest');
+
+      btnOrigin.classList.remove('border-emerald-500', 'bg-emerald-500/10');
+      btnDest.classList.remove('border-rose-500', 'bg-rose-500/10');
+
+      if (target === 'origin') {
+        btnOrigin.classList.add('border-emerald-500', 'bg-emerald-500/10');
+      } else if (target === 'dest') {
+        btnDest.classList.add('border-rose-500', 'bg-rose-500/10');
+      }
+    }
+
+    function handleMapClick(e) {
+      if (!isPlacementMode) return;
+
+      // Clamp to valid graph coverage before storing
+      const c = clampToGraph(e.latlng.lat, e.latlng.lng);
+      const lat = c.lat.toFixed(5);
+      const lon = c.lon.toFixed(5);
+
+      if (isPlacementMode === 'origin') {
+        oLatInput.value = lat;
+        oLonInput.value = lon;
+      } else if (isPlacementMode === 'dest') {
+        dLatInput.value = lat;
+        dLonInput.value = lon;
+      }
+
+      // Deactivate placement focus state
+      togglePlacementMode(null);
+      updateMapMarkers();
+    }
+
+    function resetToDefaultBounds() {
+      map.fitBounds(defaultBounds);
+    }
+
+    function swapEndpoints() {
+      const tempLat = oLatInput.value;
+      const tempLon = oLonInput.value;
+      oLatInput.value = dLatInput.value;
+      oLonInput.value = dLonInput.value;
+      dLatInput.value = tempLat;
+      dLonInput.value = tempLon;
+
+      updateMapMarkers();
+    }
+
+    function loadPreset(id) {
+      if (id === 'mandi_bridge_out') {
+        // Realistic drivable points inside the Mandi OSMnx multigraph
+        // (lon kept in 76.91–76.96 range, lat kept inside graph radius)
+        oLatInput.value = "31.7180";
+        oLonInput.value = "76.9280";
+        dLatInput.value = "31.7020";
+        dLonInput.value = "76.9420";
+      } else if (id === 'beas_flood') {
+        oLatInput.value = "31.7250";
+        oLonInput.value = "76.9400";
+        dLatInput.value = "31.7050";
+        dLonInput.value = "76.9310";
+      }
+      updateMapMarkers();
+    }
+
+    async function calculateReroute() {
+      const btn = document.getElementById('submit-btn');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Resolving Safe Corridor...`;
+
+      const reqBody = {
+        origin_lat: parseFloat(oLatInput.value),
+        origin_lon: parseFloat(oLonInput.value),
+        dest_lat: parseFloat(dLatInput.value),
+        dest_lon: parseFloat(dLonInput.value)
+      };
+
+      const startTime = performance.now();
+
+      try {
+        const response = await fetch('/api/v1/reroute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        });
+
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        document.getElementById('latency-val').innerText = `${latency} ms`;
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.detail || "Submerged Corridor: Routing unavailable.");
+        }
+
+        const data = await response.json();
+
+        // Plot evacuation polyline route
+        if (routeLayer) map.removeLayer(routeLayer);
+
+        // Re-orient coordinates from GeoJSON [lon, lat] format to Leaflet [lat, lon]
+        const rawCoords = data.geojson.features[0].geometry.coordinates;
+        const latLns = rawCoords.map(coord => [coord[1], coord[0]]);
+
+        routeLayer = L.polyline(latLns, {
+          color: '#06b6d4',
+          weight: 5,
+          opacity: 0.85,
+          lineCap: 'round',
+          lineJoin: 'round',
+          className: 'safe-trail'
+        }).addTo(map);
+
+        // Adjust map viewport boundary to enclose path
+        map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+
+        // ── Metric extraction ─────────────────────────────────────────────
+        // API returns { distance_meters, waypoints_count } (RerouteResponse).
+        // Fallback chain guards against any future schema rename.
+        const distance = data.distance_meters
+          ?? data.total_distance_meters
+          ?? data.total_distance
+          ?? (data.distance_km != null ? data.distance_km * 1000 : null)
+          ?? 0;
+        const distanceKm = (distance / 1000).toFixed(2);
+
+        const nodes = data.waypoints_count
+          ?? data.waypoint_count
+          ?? data.node_count
+          ?? data.geojson?.features?.[0]?.geometry?.coordinates?.length
+          ?? 0;
+
+        document.getElementById('stats-distance').innerText = `${distanceKm} KM`;
+        document.getElementById('stats-nodes').innerText = `${nodes} nodes`;
+        document.getElementById('route-stats').classList.remove('hidden');
+
+      } catch (err) {
+        alert(`⚠️ Disaster routing failure: ${err.message}`);
+        document.getElementById('route-stats').classList.add('hidden');
+        if (routeLayer) map.removeLayer(routeLayer);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+  </script>
+</body>
+
+</html>

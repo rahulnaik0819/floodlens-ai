@@ -1,0 +1,23 @@
+# Core Machine Learning & Satellite Processing
+torch>=2.0.0
+torchvision>=0.15.0
+segmentation-models-pytorch>=0.3.3
+numpy>=1.24.0,<3.0.0
+
+# Geospatial Analysis & Graph Routing
+osmnx>=1.9.0
+networkx>=3.0
+shapely>=2.0.0
+geopandas>=0.14.0
+rasterio>=1.3.0
+folium>=0.15.0
+
+# Web API Framework & Validation
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.5.0
+httpx>=0.25.0
+
+# Testing & Quality
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
